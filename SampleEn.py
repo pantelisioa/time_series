@@ -1,63 +1,56 @@
 import numpy as np
-import scipy as sp
-from scipy.spatial.distance import pdist
+from scipy.spatial.distance import pdist, squareform
 
-def SampEn(x,m=1,r=0.2,N=len(x), metric='chebyshev'):
+def SampEn(x, m=2, r=0.2, metric='chebyshev'):
     """
-    Calculates the sample entropy of the time series x. Chebyshev is used as the distance metric.
+    Calculates the sample entropy of the time series x.
 
-    Input:
-        x -- Timeseries array
-        m -- Embedding Dimension, default m=1
-        r -- Tolerance, default r=0.2*std
-        N -- Length of the segment of the timeseries that we want to calculate the SampEn, default N=len(x)
-        metric -- Denotes the distance metric, default metric = 'chebyshev' (see scipy.spatial.distance.pdist)
+    Inputs:
+        x -- Time series as a NumPy array.
+        m -- Embedding dimension (default m=2).
+        r -- Tolerance (default r=0.2 times the standard deviation of x).
+        metric -- Distance metric to use (default is 'chebyshev').
 
-    Output:
-        sampen -- Sample Entropy
-        se -- Standard error estimates
-
+    Outputs:
+        sampen -- Sample entropy value.
+        se -- Standard error estimate.
     """
-    # define tolerance
-    tol = r*np.std(x)
+    # Calculate tolerance as r times the standard deviation
+    tol = r * np.std(x)
 
-    # create the m-dimensional vector space for x0
-    x0 = np.zeros((m,N))
-    x1 = np.zeros((m+1,N))
+    # Length of time series
+    N = len(x)
 
-    # Embedding in the m dimensionality
-    for i in range(m):
-        x0[i,i:] = x[i:]
-        x0[i] = np.roll(x[i],N-i)
-        x0 = x0.T
+    # Create embedded vectors for dimension m and m+1
+    x_embedded_m = np.array([x[i:N - m + i] for i in range(m)]).T
+    x_embedded_m1 = np.array([x[i:N - m - 1 + i] for i in range(m + 1)]).T
 
-    # Do the same for the m+1-dimensional vector space for x1
-    for j in range(m+1):
-        x1[j,j:] = x[j:]
-        x1[j] = np.roll(x[j],N-j)
-        x1 = x1.T
+    # Compute pairwise distances
+    dist_m = squareform(pdist(x_embedded_m, metric))
+    dist_m1 = squareform(pdist(x_embedded_m1, metric))
 
-    dist0 = pdist(x0, metric)
-    dist1 = pdist(x1, metric)
+    # Count pairs that meet the tolerance condition
+    B = np.sum(np.sum(dist_m <= tol, axis=1) - 1)  # Subtract 1 to exclude self-pairing
+    A = np.sum(np.sum(dist_m1 <= tol, axis=1) - 1)
 
-    # Get the number of distances that fullfill the tolerance criterion
-    crit0 = np.where(dist0<=tol)[0]
-    crit1 = np.where(dist1<=tol)[0]
+    # Avoid division by zero
+    if B == 0:
+        return np.inf, np.nan  # Infinite entropy if B is 0
 
-    # Set the A and B according to the SampEn definition
-    A = len(crit1)
-    B = len(crit0)
+    # Sample entropy calculation
+    sampen = -np.log(A / B)
 
-    p = A/B
-    # Calculate the SampEn
-    sampen = -np.log(p) # RETURN
-
-    # Now lets calculate the standard error estimates
-    # This SEE is taken from the MATLAB code of Moorman and Lake
-    # https://www.physionet.org/content/sampen/1.0.0/matlab/#files-panel
-
-    var_p = (p*(1-p))/B # Variance of p
-    std_p = np.sqrt(var_p)
-    se = std_p/p # RETURN
+    # Standard error calculation, taken from the Matlab code of Moorman and Lake (s. Physionet)
+    p = A / B
+    var_p = (p * (1 - p)) / B
+    se = np.sqrt(var_p) / p
 
     return sampen, se
+
+
+# Example usage
+time_series = np.sin(np.linspace(0, 8 * np.pi, 300)) + 0.1 * np.random.randn(300)
+sampen, se = SampEn(time_series, m=2, r=0.2)
+
+print("Sample Entropy:", sampen)
+print("Standard Error:", se)
